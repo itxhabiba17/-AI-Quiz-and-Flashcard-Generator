@@ -63,7 +63,17 @@ def inject_css():
     st.markdown(
         """
         <style>
-        .block-container {padding-top: 1.5rem; max-width: 1050px;}
+        .block-container {padding-top: 4.5rem; max-width: 1050px;}
+        button[kind="primary"], button[data-testid="stBaseButton-primary"] {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+            border: none !important; color: white !important;
+        }
+        button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {
+            filter: brightness(1.1);
+        }
+        div[data-testid="stFileUploader"] section {
+            border: 2px dashed #a5b4fc !important; border-radius: 12px !important;
+        }
         .hero {
             background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #ec4899 100%);
             padding: 2rem 2.2rem; border-radius: 20px; color: white;
@@ -107,6 +117,11 @@ def inject_css():
             margin: 1rem 0;
         }
         div.stButton > button {border-radius: 10px; font-weight: 600;}
+        div[data-testid="stTextArea"] textarea {
+            border: 2px solid #c7d2fe !important; border-radius: 12px !important;
+            font-size: 1rem;
+        }
+        div[data-testid="stTextArea"] textarea:focus {border-color: #4f46e5 !important;}
         </style>
         """,
         unsafe_allow_html=True,
@@ -571,11 +586,28 @@ def render_generate_page():
             key="topic",
             placeholder="e.g. Photosynthesis, World War II, Python Loops",
         )
+        file_types = ["txt", "md", "pdf"] if PdfReader else ["txt", "md"]
+        st.file_uploader(
+            "📂 Upload notes from a file (optional)",
+            type=file_types,
+            key="notes_file",
+            on_change=load_uploaded_file,
+            help="Upload a text or PDF file and the notes box below will be filled automatically.",
+        )
+        if st.session_state.upload_msg:
+            kind, message = st.session_state.upload_msg
+            if kind == "success":
+                st.success(message)
+            else:
+                st.error(message)
+
+        st.markdown("**🗒️ Lesson notes** — type, paste, or upload a file above")
         st.text_area(
-            "🗒️ Lesson notes",
+            "Lesson notes",
             key="notes",
             height=260,
-            placeholder="Paste your lesson notes here...",
+            placeholder="✍️ Click here and paste your lesson notes...",
+            label_visibility="collapsed",
         )
 
         col1, col2 = st.columns(2)
