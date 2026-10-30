@@ -19,6 +19,7 @@ from groq import (
     AuthenticationError,
     BadRequestError,
     Groq,
+    NotFoundError,
     RateLimitError,
 )
 
@@ -32,7 +33,7 @@ PAGE_ICONS = {
     "Flashcards": "🃏",
     "Quiz Results": "🏆",
 }
-MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 LETTERS = ["A", "B", "C", "D"]
 MAX_NOTES_CHARS = 12000  # keeps the prompt within a safe size
 
@@ -191,6 +192,9 @@ def friendly_api_error(error):
         return "Groq rate limit reached. Please wait a minute and try again."
     if isinstance(error, APIConnectionError):
         return "Could not connect to Groq. Please check your internet connection and try again."
+    if isinstance(error, NotFoundError):
+        return ("The selected AI model is not available on Groq right now. "
+                "Please choose another model in the sidebar or check console.groq.com/docs/models.")
     if isinstance(error, BadRequestError):
         return "Groq could not process this request. Try shorter notes or a different model."
     if isinstance(error, APIStatusError):
@@ -282,29 +286,52 @@ def validate_flashcards(data):
     return valid
 
 
-def ask_groq(api_key, model, system_prompt, user_prompt, validator, attempts=2):
+def ask_groq(api_key, model, system_prompt, user_prompt, validator, attempts=3):
     """
-    Call Groq and validate the result. If the AI gives a badly formatted
-    answer, try again (up to `attempts` times). API errors are raised to the caller.
+    Call Groq and validate the result.
+    - If a model is not found (404), the next model in MODELS is tried.
+    - If JSON mode is rejected, the request is repeated without it.
+    - If the AI gives a badly formatted answer, it tries again.
+    Other API errors are raised to the caller.
     """
     client = Groq(api_key=api_key, timeout=60.0)
+    models_to_try = [model] + [m for m in MODELS if m != model]
     last_error = None
-    for _ in range(attempts):
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content if response.choices else ""
-        try:
-            return validator(extract_json(content))
-        except ValueError as err:
-            last_error = err
-    raise ValueError(f"{last_error} Please try again.")
+
+    for model_name in models_to_try:
+        use_json_mode = True
+        for _ in range(attempts):
+            request = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.4,
+            }
+            if use_json_mode:
+                request["response_format"] = {"type": "json_object"}
+
+            try:
+                response = client.chat.completions.create(**request)
+            except NotFoundError as err:
+                last_error = err
+                break  # this model is gone, try the next one
+            except BadRequestError:
+                if use_json_mode:
+                    use_json_mode = False  # retry without JSON mode
+                    continue
+                raise
+
+            content = response.choices[0].message.content if response.choices else ""
+            try:
+                return validator(extract_json(content))
+            except ValueError as err:
+                last_error = err
+
+    if isinstance(last_error, NotFoundError):
+        raise last_error
+    raise ValueError(f"{last_error or 'No response received.'} Please try again.")
 
 
 def generate_quiz(api_key, model, topic, notes, difficulty, num_questions):
