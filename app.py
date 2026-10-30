@@ -43,6 +43,12 @@ DIFFICULTY_HINTS = {
     "with plausible, closely related distractors.",
 }
 
+# PDF upload is optional: it only works if the pypdf package is installed.
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
 st.set_page_config(
     page_title="AI Quiz & Flashcard Generator",
     page_icon="🎓",
@@ -122,6 +128,7 @@ def init_state():
         "quiz_finished": False,
         "quiz_difficulty": "Medium",
         "warning": "",
+        "upload_msg": None,  # (type, text) message shown after a file upload
         "flashcards": [],
         "card_index": 0,
         "card_revealed": False,
@@ -400,6 +407,43 @@ def next_question():
 def finish_quiz():
     st.session_state.quiz_finished = True
     st.session_state.page = "Quiz Results"
+
+
+def load_uploaded_file():
+    """Read an uploaded .txt / .md / .pdf file and put its text in the notes box."""
+    uploaded = st.session_state.get("notes_file")
+    if uploaded is None:
+        return
+
+    try:
+        name = uploaded.name.lower()
+        if name.endswith((".txt", ".md")):
+            text = uploaded.getvalue().decode("utf-8", errors="ignore")
+        elif name.endswith(".pdf"):
+            if PdfReader is None:
+                st.session_state.upload_msg = (
+                    "error",
+                    "PDF support needs the 'pypdf' package. Add it to requirements.txt and reboot the app.",
+                )
+                return
+            reader = PdfReader(uploaded)
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        else:
+            st.session_state.upload_msg = ("error", "Unsupported file type. Please upload a .txt, .md or .pdf file.")
+            return
+
+        text = text.strip()
+        if not text:
+            st.session_state.upload_msg = (
+                "error",
+                "No readable text was found in this file. Scanned PDFs (images) cannot be read.",
+            )
+            return
+
+        st.session_state.notes = text
+        st.session_state.upload_msg = ("success", f"Loaded '{uploaded.name}' ({len(text):,} characters) into the notes box.")
+    except Exception:
+        st.session_state.upload_msg = ("error", "Sorry, this file could not be read. Try another file or paste the text instead.")
 
 
 def prev_card():
